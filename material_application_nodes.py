@@ -1,7 +1,7 @@
 from anthropic import Anthropic
 from langchain.chat_models.anthropic import ChatAnthropic
 # from langchain.document_loaders import PyPDFDirectoryLoader
-from langchain.schema import HumanMessage
+from langchain.schema import HumanMessage, AIMessage
 from dotenv import load_dotenv
 
 # import matplotlib.pyplot as plt
@@ -15,7 +15,7 @@ anthropic = Anthropic(api_key=os.environ["ANTHROPIC_API_KEY"])
 
 chat = ChatAnthropic(client=anthropic, model="claude-2", max_tokens_to_sample=300, temperature=0)
 
-def claude_chat(content: str) -> str:
+def claude_chat(content: str, ai_message: str=None) -> str:
     """Run the Claude chat feature with given content
 
     Parameters
@@ -27,8 +27,11 @@ def claude_chat(content: str) -> str:
     -------
     str
         Claude-2's response to your content
-    """    
-    messages = [HumanMessage(content=content)]
+    """
+    if ai_message:
+        messages = [HumanMessage(content=content), AIMessage(content=ai_message)]
+    else:
+        messages = [HumanMessage(content=content)]
     result = chat(messages=messages).content
     return result
 

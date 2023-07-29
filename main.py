@@ -1,12 +1,25 @@
 from anthropic import Anthropic, HUMAN_PROMPT, AI_PROMPT
+from langchain.chat_models.anthropic import ChatAnthropic
+from material_application_nodes import claude_chat
 import pydantic_core
 from PyPDF2 import PdfReader
 import os
 import sys
 import json
 from pydantic.dataclasses import dataclass
+from langchain.callbacks.manager import CallbackManager
+from langchain.callbacks.streaming_stdout import StreamingStdOutCallbackHandler
 
 anthropic = Anthropic(api_key=os.environ.get("ANTHROPIC_API_KEY"))
+chat = ChatAnthropic(
+    client=anthropic,
+    model="claude-2",
+    max_tokens_to_sample=300,
+    temperature=0,
+    streaming=True,
+    verbose=True,
+    callback_manager=CallbackManager([StreamingStdOutCallbackHandler()]),
+)
 
 
 @dataclass
@@ -46,7 +59,6 @@ def get_pdf_content(pdf_path: str) -> str:
 
 def build_prompt(topic: str, pdf_content: str) -> str:
     return (
-        f"{HUMAN_PROMPT} "
         f"The following is an academic paper in the materials science field related "
         "to manufacturing and designing {topic} "
         "in order to affect certain properties of the material."
@@ -82,26 +94,14 @@ def build_prompt(topic: str, pdf_content: str) -> str:
         "Please ONLY output the JSON object within the <output></output> tags and "
         "nothing else."
         f"<document>{pdf_content}</document>"
-        f"{AI_PROMPT} <output>"
     )
 
 
 def process_document(document_path: str) -> StructuredOutput:
     pdf_content = get_pdf_content(document_path)
     my_prompt = build_prompt("steel", pdf_content)
-    stream = anthropic.completions.create(
-        model="claude-2",
-        max_tokens_to_sample=1000,
-        prompt=my_prompt,
-        stream=True,
-    )
-    raw_output = ""
-    for completion in stream:
-        s = completion.completion
-        eprint(s)
-        raw_output = raw_output + s
-    eprintln("")
-    raw_json_str = parse_output(raw_output)
+    result = claude_chat(content=my_prompt, ai_message="<output>")
+    raw_json_str = parse_output(result)
     json_output = json.loads(raw_json_str)
     json_output["file_name"] = document_path
     typed_output = StructuredOutput(**json_output)
