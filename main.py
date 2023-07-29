@@ -7,9 +7,19 @@ import os
 import sys
 import json
 from pydantic.dataclasses import dataclass
+from langchain.callbacks.manager import CallbackManager
+from langchain.callbacks.streaming_stdout import StreamingStdOutCallbackHandler
 
 anthropic = Anthropic(api_key=os.environ.get("ANTHROPIC_API_KEY"))
-chat = ChatAnthropic(client=anthropic, model="claude-2", max_tokens_to_sample=300, temperature=0, streaming=True)
+chat = ChatAnthropic(
+    client=anthropic,
+    model="claude-2",
+    max_tokens_to_sample=300,
+    temperature=0,
+    streaming=True,
+    verbose=True,
+    callback_manager=CallbackManager([StreamingStdOutCallbackHandler()]),
+)
 
 
 @dataclass
