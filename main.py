@@ -1,4 +1,4 @@
-from anthropic import Anthropic, HUMAN_PROMPT, AI_PROMPT
+from util import claude_chat
 import pydantic_core
 from PyPDF2 import PdfReader
 import os
@@ -6,8 +6,6 @@ import sys
 import json
 from pydantic.dataclasses import dataclass
 import argparse
-
-anthropic = Anthropic(api_key=os.environ.get("ANTHROPIC_API_KEY"))
 
 
 @dataclass
@@ -53,7 +51,6 @@ def get_pdf_content(pdf_path: str) -> str:
 
 def build_get_topic_prompt(pdf_content: str) -> str:
     return (
-        f"{HUMAN_PROMPT} "
         f"The following is an academic paper in the materials science field related "
         f"to manufacturing and designing materials."
         "in order to affect certain properties of the material."
@@ -69,7 +66,6 @@ def build_get_topic_prompt(pdf_content: str) -> str:
         "<example><topic>Lithium Ion Batteries</topic></example>"
         "<example><topic>Concrete</topic></example>"
         "<example><topic>Polymers</topic></example>"
-        f"{AI_PROMPT} <topic>"
     )
 
 
@@ -81,24 +77,12 @@ def parse_topic_output(claude_output: str) -> str:
 def get_document_topic(document_path: str) -> str:
     pdf_content = get_pdf_content(document_path)
     my_prompt = build_get_topic_prompt(pdf_content)
-    stream = anthropic.completions.create(
-        model="claude-2",
-        max_tokens_to_sample=1000,
-        prompt=my_prompt,
-        stream=True,
-    )
-    raw_output = ""
-    for completion in stream:
-        s = completion.completion
-        eprint(s)
-        raw_output = raw_output + s
-    eprintln("")
-    return parse_topic_output(raw_output)
+    result = claude_chat(content=my_prompt, ai_message="<topic>")
+    return parse_topic_output(result)
 
 
 def build_structured_output_prompt(topic: str, pdf_content: str) -> str:
     return (
-        f"{HUMAN_PROMPT} "
         f"The following is an academic paper in the materials science field related "
         f"to manufacturing and designing {topic} "
         "in order to affect certain properties of the material."
@@ -109,7 +93,7 @@ def build_structured_output_prompt(topic: str, pdf_content: str) -> str:
         "In particular, you will be taking the following steps, that result in an "
         "output json object, included within <output></output> tags. "
         f"1. Based on the document, "
-        "you will list all of the manufacturing and processing steps for {topic}. "
+        f"you will list all of the manufacturing and processing steps for {topic}. "
         "  Please include each individual step within a json array of strings in the "
         '"processes" field '
         "of the output."
@@ -135,7 +119,6 @@ def build_structured_output_prompt(topic: str, pdf_content: str) -> str:
         "Please ONLY output the JSON object within the <output></output> tags and "
         "nothing else."
         f"<document>{pdf_content}</document>"
-        f"{AI_PROMPT} <output>"
     )
 
 
@@ -144,19 +127,8 @@ def process_document(topic: str | None, document_path: str) -> StructuredOutput:
     if topic is None:
         topic = get_document_topic(document_path)
     my_prompt = build_structured_output_prompt(topic, pdf_content)
-    stream = anthropic.completions.create(
-        model="claude-2",
-        max_tokens_to_sample=1000,
-        prompt=my_prompt,
-        stream=True,
-    )
-    raw_output = ""
-    for completion in stream:
-        s = completion.completion
-        eprint(s)
-        raw_output = raw_output + s
-    eprintln("")
-    raw_json_str = parse_structured_output(raw_output)
+    result = claude_chat(content=my_prompt, ai_message="<output>")
+    raw_json_str = parse_structured_output(result)
     json_output = json.loads(raw_json_str)
     json_output["file_name"] = document_path
     json_output["topic"] = topic

@@ -1,21 +1,31 @@
-from anthropic import Anthropic
 from langchain.chat_models.anthropic import ChatAnthropic
-# from langchain.document_loaders import PyPDFDirectoryLoader
-from langchain.schema import HumanMessage
+
+from anthropic import Anthropic
+
+from langchain.schema import HumanMessage, AIMessage
 from dotenv import load_dotenv
 
-# import matplotlib.pyplot as plt
-# import networkx as nx
+from langchain.callbacks.manager import CallbackManager
+from langchain.callbacks.streaming_stdout import StreamingStdOutCallbackHandler
 import os
+
 import ast
 
 load_dotenv(".env")
 
-anthropic = Anthropic(api_key=os.environ["ANTHROPIC_API_KEY"])
+anthropic = Anthropic(api_key=os.environ.get("ANTHROPIC_API_KEY"))
+chat = ChatAnthropic(
+    client=anthropic,
+    model="claude-2",
+    max_tokens_to_sample=300,
+    temperature=0,
+    streaming=True,
+    verbose=True,
+    callback_manager=CallbackManager([StreamingStdOutCallbackHandler()]),
+)
 
-chat = ChatAnthropic(client=anthropic, model="claude-2", max_tokens_to_sample=300, temperature=0)
 
-def claude_chat(content: str) -> str:
+def claude_chat(content: str, ai_message: str | None = None) -> str:
     """Run the Claude chat feature with given content
 
     Parameters
@@ -27,11 +37,13 @@ def claude_chat(content: str) -> str:
     -------
     str
         Claude-2's response to your content
-    """    
-    messages = [HumanMessage(content=content)]
-    result = chat(messages=messages).content
+    """
+    if ai_message:
+        messages = [HumanMessage(content=content), AIMessage(content=ai_message)]
+    else:
+        messages = [HumanMessage(content=content)]
+    result: str = chat(messages=messages).content
     return result
-
 
 
 def condense_text(items: list) -> list:
@@ -46,14 +58,20 @@ def condense_text(items: list) -> list:
     -------
     list
         list of condensed text
-    """    
+    """
     for i in range(len(items)):
         if len(items[i]) > 30:
             # set the temeprature to 0 for reproducibility
-            content = items[i] + "\n Summarize the previous text in 3 words. Do not use more than 3 words. Do not return an empty response."
+            content = (
+                items[i]
+                + "\n Summarize the previous text in 3 words. Do not use more than 3 words. Do not return an empty response."
+            )
             result = claude_chat(content=content)
             if len(result) < 1:
-                content = items[i] + "\n Summarize the previous text in 2 words. Do not use more than 2 words. Do not return an empty response."
+                content = (
+                    items[i]
+                    + "\n Summarize the previous text in 2 words. Do not use more than 2 words. Do not return an empty response."
+                )
                 result = claude_chat(content=content)
             items[i] = result.strip()
     return items
@@ -72,17 +90,24 @@ def get_nodes(topic: str) -> dict:
     -------
     dict
         mapping with processes, structures, and properties
-    """    
+    """
     results = {}
 
     # processing nodes returned as a python list
-    content = "List all the manufacturing and processing steps for" + topic + " in the order in which they are performed."
+    content = (
+        "List all the manufacturing and processing steps for"
+        + topic
+        + " in the order in which they are performed."
+    )
     messages = [HumanMessage(content=content)]
-    
+
     result = chat(messages=messages).content
     results["processing_original"] = result
 
-    content = result.split('\n', 1)[-1] + " \nPrint this list as a python list of comma separated values, e.g.: `[foo, bar, baz]`."
+    content = (
+        result.split("\n", 1)[-1]
+        + " \nPrint this list as a python list of comma separated values, e.g.: `[foo, bar, baz]`."
+    )
     messages = [HumanMessage(content=content)]
     result = chat(messages=messages).content
     processing = ast.literal_eval(result)
@@ -90,26 +115,42 @@ def get_nodes(topic: str) -> dict:
     results["processing"] = processing
 
     # structure nodes returned as a python list
-    content = "List at least five microstructural features which determine the performance of "+topic+"."
+    content = (
+        "List at least five microstructural features which determine the performance of "
+        + topic
+        + "."
+    )
     result = claude_chat(content=content)
     results["structures_original"] = result
-    content = result.split('\n', 1)[-1] + " \nPrint this list as a python list of comma separated values, e.g.: `[foo, bar, baz]`."
+    content = (
+        result.split("\n", 1)[-1]
+        + " \nPrint this list as a python list of comma separated values, e.g.: `[foo, bar, baz]`."
+    )
     result = claude_chat(content=content)
     structures = ast.literal_eval(result)
     structures = condense_text(structures)
     results["structures"] = structures
 
     # property nodes returned as a python list
-    content = "List at least five properties essential for a high performance "+topic+". Do not list just one property."""
+    content = (
+        "List at least five properties essential for a high performance "
+        + topic
+        + ". Do not list just one property."
+        ""
+    )
     result = claude_chat(content=content)
     results["properties_original"] = result
-    content = result.split('\n', 1)[-1] + " \nPrint this list as a python list of comma separated values, e.g.: `[foo, bar, baz]`."
+    content = (
+        result.split("\n", 1)[-1]
+        + " \nPrint this list as a python list of comma separated values, e.g.: `[foo, bar, baz]`."
+    )
     result = claude_chat(content=content)
     properties = ast.literal_eval(result)
     properties = condense_text(properties)
     results["properties"] = properties
-    
+
     return results
+
 
 # results = get_nodes(topic="stainless steel")
 
@@ -121,7 +162,7 @@ def get_nodes(topic: str) -> dict:
 #     ----------
 #     topic : str
 #         a materials application
-#     """    
+#     """
 #     results = get_nodes(topic=topic)
 
 #     G = nx.DiGraph()
