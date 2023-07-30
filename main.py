@@ -17,6 +17,7 @@ class StructuredOutput:
     processes: list[str]
     structures: list[str]
     properties: list[str]
+    process_structure_influences: dict[str, str]
 
 
 def eprintln(arg):
@@ -76,8 +77,77 @@ def parse_topic_output(claude_output: str) -> str:
     return parse_from_end_token(claude_output, "</topic>")
 
 
-def get_document_topic(document_path: str) -> str:
-    pdf_content = get_pdf_content(document_path)
+def parse_bool_output(claude_output: str) -> str:
+    return parse_from_end_token(claude_output, "</output>")
+
+
+def build_x_affects_y_prompt(topic: str, pdf_content: str, x: str, y: str) -> str:
+    return (
+        f"The following is an academic paper in the materials science field related "
+        f"to manufacturing and designing materials, specifically {topic}."
+        "in order to affect certain properties of the material."
+        "The document be provided within <document></document> tags. "
+        "Here is the document:"
+        f"<document>{pdf_content}</document>"
+        f'Please help me determine if "{x}" strongly affects or is correlated with '
+        f'"{y}" according '
+        f'the academic paper. Please only indicate that "{x}" affects or is correlated '
+        f'with "{y}" '
+        "if you can find evidence supporting that fact. If you cannot"
+        "find evidence supporting that fact or do not know, indicate that"
+        f'"{x}" does NOT affect "{y}" by default.'
+        "Your output should be returned withing <output></output> tags."
+        'The output should be simply the word "true" or "false"'
+        "Here are 2 samples of good output, each in <example></example> tags"
+        "Good Example 1: "
+        "<example><output>true</output></example>"
+        "Good Example 2: "
+        "<example><output>false</output></example>"
+        "Here is an example of BAD output."
+        "Bad Example 1: "
+        "<example><output>Some reasoning. false</output></example>"
+        "Bad Example 2: "
+        "<example><output>Some other reasoning. true</output></example>"
+        "Please make sure to format your response like the good examples, where"
+        "the content within the <output></output> tags is just true or false"
+    )
+
+
+def get_x_affects_y(topic: str, pdf_content: str, x: str, y: str) -> bool:
+    my_prompt = build_x_affects_y_prompt(topic, pdf_content, x, y)
+    result = claude_chat(content=my_prompt, ai_message="<output>")
+    bool_str = parse_bool_output(result)
+    eprintln("***")
+    eprintln(f"Parsed response: {bool_str}")
+    eprintln("***")
+    if bool_str.strip().lower() == "true":
+        return True
+    return False
+
+
+def add_process_structure_edges(
+    pdf_content: str, structured_output: StructuredOutput, G: nx.DiGraph
+) -> None:
+    for p in structured_output.processes:
+        for s in structured_output.structures:
+            does_affect = get_x_affects_y(structured_output.topic, pdf_content, p, s)
+            if does_affect:
+                G.add_edge(p, s)
+                structured_output.process_structure_influences[p] = s
+
+
+def add_structure_property_edges(
+    pdf_content: str, structured_output: StructuredOutput, G: nx.DiGraph
+) -> None:
+    for s in structured_output.structures:
+        for p in structured_output.properties:
+            does_affect = get_x_affects_y(structured_output.topic, pdf_content, s, p)
+            if does_affect:
+                G.add_edge(s, p)
+                structured_output.process_structure_influences[s] = p
+
+
+def get_document_topic(pdf_content: str) -> str:
     my_prompt = build_get_topic_prompt(pdf_content)
     result = claude_chat(content=my_prompt, ai_message="<topic>")
     return parse_topic_output(result)
@@ -136,13 +206,14 @@ def build_structured_output_prompt(topic: str, pdf_content: str) -> str:
 def process_document(topic: str | None, document_path: str) -> StructuredOutput:
     pdf_content = get_pdf_content(document_path)
     if topic is None:
-        topic = get_document_topic(document_path)
+        topic = get_document_topic(pdf_content)
     my_prompt = build_structured_output_prompt(topic, pdf_content)
     result = claude_chat(content=my_prompt, ai_message="<output>")
     raw_json_str = parse_structured_output(result)
     json_output = json.loads(raw_json_str)
     json_output["file_name"] = document_path
     json_output["topic"] = topic
+    json_output["process_structure_influences"] = {}
     typed_output = StructuredOutput(**json_output)
     return typed_output
 
@@ -178,7 +249,7 @@ def parse_args() -> argparse.Namespace:
     return args
 
 
-def draw_graph(structured_output: StructuredOutput) -> None:
+def build_initial_graph(structured_output: StructuredOutput) -> nx.DiGraph:
     G = nx.DiGraph()
     for i in structured_output.processes:
         G.add_node(i, layer=0)
@@ -186,6 +257,10 @@ def draw_graph(structured_output: StructuredOutput) -> None:
         G.add_node(i, layer=1)
     for i in structured_output.properties:
         G.add_node(i, layer=2)
+    return G
+
+
+def draw_graph(filename: str, G: nx.DiGraph) -> None:
     # Create a layout for the nodes in the graph
     pos = nx.multipartite_layout(G, subset_key="layer")
 
@@ -196,7 +271,7 @@ def draw_graph(structured_output: StructuredOutput) -> None:
     color = [subset_color[data["layer"]] for v, data in G.nodes(data=True)]
     nx.draw_networkx_nodes(G, pos, node_size=1000, node_color=color, margins=0.2)
     # Draw edges
-    # nx.draw_networkx_edges(G, pos, edge_color="lightgray")
+    nx.draw_networkx_edges(G, pos, edge_color="lightgray")
 
     # Draw labels
     nx.draw_networkx_labels(G, pos, font_size=4, font_color="black")
@@ -207,7 +282,6 @@ def draw_graph(structured_output: StructuredOutput) -> None:
         fontsize=16,
     )
     plt.axis("off")
-    filename = f"{structured_output.topic}.png"
     print(f"Saving {filename}")
     plt.savefig(filename)
 
@@ -216,9 +290,15 @@ if __name__ == "__main__":
     args = parse_args()
     if args.document_path:
         print(args.document_path)
-        topic = get_document_topic(args.document_path)
+        pdf_content = get_pdf_content(args.document_path)
+        topic = get_document_topic(pdf_content)
         eprintln(topic)
         output = process_document(topic, args.document_path)
-        draw_graph(output)
+        G = build_initial_graph(output)
+        add_process_structure_edges(pdf_content, output, G)
+        add_structure_property_edges(pdf_content, output, G)
+        eprintln(json.dumps(pydantic_core.to_jsonable_python(output), indent=2))
+        filename = f"{output.topic}.png"
+        draw_graph(filename, G)
     else:
         run_on_test_corpus()
