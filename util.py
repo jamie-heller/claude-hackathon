@@ -17,7 +17,7 @@ anthropic = Anthropic(api_key=os.environ.get("ANTHROPIC_API_KEY"))
 chat = ChatAnthropic(
     client=anthropic,
     model="claude-2",
-    max_tokens_to_sample=300,
+    max_tokens_to_sample=1000,
     temperature=0,
     streaming=True,
     verbose=True,
