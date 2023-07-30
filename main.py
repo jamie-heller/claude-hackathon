@@ -6,6 +6,8 @@ import sys
 import json
 from pydantic.dataclasses import dataclass
 import argparse
+import networkx as nx
+import matplotlib.pyplot as plt
 
 
 @dataclass
@@ -13,7 +15,7 @@ class StructuredOutput:
     file_name: str
     topic: str
     processes: list[str]
-    features: list[str]
+    structures: list[str]
     properties: list[str]
 
 
@@ -99,8 +101,8 @@ def build_structured_output_prompt(topic: str, pdf_content: str) -> str:
         "of the output."
         "2. Based on the document, list at least 5 microstructural features which "
         f"determine the performance of {topic}"
-        "  Please include each individual feature within a json array of strings in "
-        'the "features" field '
+        "  Please include each individual structure within a json array of strings in "
+        'the "structures" field '
         "of the output object."
         f"3. List at least five properties essential for a high performance {topic}. "
         "  Please include each individual property within a json array of strings in "
@@ -110,9 +112,18 @@ def build_structured_output_prompt(topic: str, pdf_content: str) -> str:
         "<example>"
         "<output>"
         "{"
-        '  "processes": ["Process 0", "Process 1", "Process 2"]'
-        '  "features": ["Feature 0", "Feature 1", "Feature 2"]'
-        '  "properties": ["Property 0", "Property 1", "Property 2"]'
+        '  "processes": ["Process 0", "Process 1", "Process 2", "Process 3"], '
+        '  "structures": ["Structure 0", "Structure 1"], '
+        '  "properties": ["Property 0", "Property 1", "Property 2", "Property 3", '
+        '"Property 4"]'
+        "}"
+        "Here is another example of good output"
+        "<example>"
+        "<output>"
+        "{"
+        '  "processes": ["PA", "PB", "PC", "PD", "PE"],'
+        '  "structures": ["S0", "S1", "S2"], '
+        '  "properties": ["Prop0", "Prop2"] '
         "}"
         "</output>"
         "</example>"
@@ -167,12 +178,47 @@ def parse_args() -> argparse.Namespace:
     return args
 
 
+def draw_graph(structured_output: StructuredOutput) -> None:
+    G = nx.DiGraph()
+    for i in structured_output.processes:
+        G.add_node(i, layer=0)
+    for i in structured_output.structures:
+        G.add_node(i, layer=1)
+    for i in structured_output.properties:
+        G.add_node(i, layer=2)
+    # Create a layout for the nodes in the graph
+    pos = nx.multipartite_layout(G, subset_key="layer")
+
+    # Draw nodes
+    plt.figure(dpi=200, figsize=(8, 5))
+
+    subset_color = ["lightskyblue", "lightblue", "lightsteelblue"]
+    color = [subset_color[data["layer"]] for v, data in G.nodes(data=True)]
+    nx.draw_networkx_nodes(G, pos, node_size=1000, node_color=color, margins=0.2)
+    # Draw edges
+    # nx.draw_networkx_edges(G, pos, edge_color="lightgray")
+
+    # Draw labels
+    nx.draw_networkx_labels(G, pos, font_size=4, font_color="black")
+
+    # Show the plot
+    plt.suptitle(
+        topic.capitalize() + ": \nProcess    -    Structure    -    Property",
+        fontsize=16,
+    )
+    plt.axis("off")
+    filename = f"{structured_output.topic}.png"
+    print(f"Saving {filename}")
+    plt.savefig(filename)
+
+
 if __name__ == "__main__":
     args = parse_args()
     if args.document_path:
         print(args.document_path)
         topic = get_document_topic(args.document_path)
         eprintln(topic)
-        process_document(topic, args.document_path)
+        output = process_document(topic, args.document_path)
+        draw_graph(output)
     else:
         run_on_test_corpus()
