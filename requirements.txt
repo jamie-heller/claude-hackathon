@@ -91,6 +91,7 @@ Pygments==2.15.1
 pyparsing==3.0.9
 pypdf==3.14.0
 python-dateutil==2.8.2
+python-dotenv==1.0.0
 python-json-logger==2.0.7
 PyYAML==6.0.1
 pyzmq==25.1.0
